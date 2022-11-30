@@ -9,10 +9,14 @@ module ODBCAdapter
     # Returns the number of rows affected.
     def execute(sql, name = nil, binds = [])
       log(sql, name) do
-        if prepared_statements
-          @connection.do(sql, *prepared_binds(binds))
-        else
-          @connection.do(sql)
+        begin
+          if prepared_statements
+            @connection.do(prepare_statement_sub(sql), *prepared_binds(binds))
+          else
+            @connection.do(sql)
+          end
+        rescue ODBC_UTF8::Error => e
+          raise e.class.new(e.message.force_encoding("utf-8"))
         end
       end
     end
@@ -22,20 +26,24 @@ module ODBCAdapter
     # the executed +sql+ statement.
     def exec_query(sql, name = 'SQL', binds = [], prepare: false) # rubocop:disable Lint/UnusedMethodArgument
       log(sql, name) do
-        stmt =
-          if prepared_statements
-            @connection.run(sql, *prepared_binds(binds))
-          else
-            @connection.run(sql)
-          end
+        begin
+          stmt =
+            if prepared_statements
+              @connection.run(prepare_statement_sub(sql), *prepared_binds(binds))
+            else
+              @connection.run(sql)
+            end
 
-        columns = stmt.columns
-        values  = stmt.to_a
-        stmt.drop
+          columns = stmt.columns
+          values  = stmt.to_a
+          stmt.drop
 
-        values = dbms_type_cast(columns.values, values)
-        column_names = columns.keys.map { |key| format_case(key) }
-        ActiveRecord::Result.new(column_names, values)
+          values = dbms_type_cast(columns.values, values)
+          column_names = columns.keys.map { |key| format_case(key) }
+          ActiveRecord::Result.new(column_names, values)
+        rescue ODBC_UTF8::Error => e
+          raise e.class.new(e.message.force_encoding("utf-8"))
+        end
       end
     end
 
@@ -49,20 +57,20 @@ module ODBCAdapter
 
     # Begins the transaction (and turns off auto-committing).
     def begin_db_transaction
-      @connection.autocommit = false
+#      @connection.autocommit = false
     end
 
     # Commits the transaction (and turns on auto-committing).
     def commit_db_transaction
       @connection.commit
-      @connection.autocommit = true
+#      @connection.autocommit = true
     end
 
     # Rolls back the transaction (and turns on auto-committing). Must be
     # done if the transaction block raises an exception or returns false.
     def exec_rollback_db_transaction
       @connection.rollback
-      @connection.autocommit = true
+#      @connection.autocommit = true
     end
 
     # Returns the default sequence name for a table.
@@ -110,7 +118,7 @@ module ODBCAdapter
     # Assume received identifier is in ActiveRecord case.
     def native_case(identifier)
       if database_metadata.upcase_identifiers?
-        identifier =~ /[A-Z]/ ? identifier : identifier.upcase
+        identifier =~ /[A-Z0-9]/ ? identifier : identifier.upcase
       else
         identifier
       end
@@ -127,8 +135,13 @@ module ODBCAdapter
       col_name == 'id' ? false : result
     end
 
+    # subsitute numbered $x placeholders with more standard ?
+    def prepare_statement_sub(sql)
+      sql.gsub(/\$\d+/, '?')
+    end
+
     def prepared_binds(binds)
-      prepare_binds_for_database(binds).map { |bind| _type_cast(bind) }
+      binds.map(&:value_for_database).map { |bind| _type_cast(bind) }
     end
   end
 end
