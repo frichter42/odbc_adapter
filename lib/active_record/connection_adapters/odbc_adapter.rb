@@ -1,5 +1,4 @@
 require 'active_record'
-require 'arel/visitors/bind_visitor'
 require 'odbc'
 require 'odbc_utf8'
 
@@ -156,8 +155,8 @@ module ActiveRecord
         map.register_type ODBC::SQL_REAL,         Type::Float.new(limit: 24)
         map.register_type ODBC::SQL_FLOAT,        Type::Float.new
         map.register_type ODBC::SQL_DOUBLE,       Type::Float.new(limit: 53)
-        map.register_type ODBC::SQL_DECIMAL,      Type::Float.new
-        map.register_type ODBC::SQL_NUMERIC,      Type::Integer.new
+        map.register_type ODBC::SQL_DECIMAL,      Type::Decimal.new
+        map.register_type ODBC::SQL_NUMERIC,      Type::Decimal.new
         map.register_type ODBC::SQL_BINARY,       Type::Binary.new
         map.register_type ODBC::SQL_DATE,         Type::Date.new
         map.register_type ODBC::SQL_DATETIME,     Type::DateTime.new
