@@ -58,6 +58,7 @@ module ODBCAdapter
       # include length, precision or scale.
       if create_params && !create_params.strip.empty? && abstract != :decimal
         result[:limit] = selected_row[2] # SQLGetTypeInfo: COL_SIZE
+        result[:limit] = 255 if abstract == :string
       end
 
       result
