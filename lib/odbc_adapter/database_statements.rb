@@ -40,7 +40,29 @@ module ODBCAdapter
 
           values = dbms_type_cast(columns.values, values)
           column_names = columns.keys.map { |key| format_case(key) }
-          ActiveRecord::Result.new(column_names, values)
+          column_types = {}
+          columns.keys.each_with_index do |col, i|
+            odbc_col_info = columns.values[i]
+            type = (type_odbc_to_ruby[odbc_col_info.type] rescue odbc_col_info.type)
+            sql_type = odbc_col_info.type
+
+            if type == :integer
+              column_types[column_names[i]] = ActiveModel::Type::Integer.new(:precision => odbc_col_info.precision)
+            elsif type == :decimal
+              if odbc_col_info.scale > 0
+                column_types[column_names[i]] = ActiveModel::Type::Decimal.new(:precision => odbc_col_info.precision, :scale => odbc_col_info.scale)
+              else
+                column_types[column_names[i]] = ActiveRecord::Type::DecimalWithoutScale.new(:precision => odbc_col_info.precision)
+              end
+            elsif type == :string
+              column_types[column_names[i]] = ActiveModel::Type::String.new(:limit => odbc_col_info.length)
+            elsif type == :date
+              column_types[column_names[i]] = ActiveModel::Type::Date.new
+            elsif type == :datetime
+              column_types[column_names[i]] = ActiveModel::Type::DateTime.new
+            end
+          end
+          ActiveRecord::Result.new(column_names, values, column_types)
         rescue ODBC_UTF8::Error => e
           raise e.class.new(e.message.force_encoding("utf-8"))
         end
