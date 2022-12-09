@@ -65,6 +65,29 @@ module ODBCAdapter
         end
       end
 
+      def type_odbc_to_ruby
+        {
+          ODBC::SQL_CHAR => :string,
+          ODBC::SQL_VARCHAR => :string,
+          ODBC::SQL_DATE => :date,
+          ODBC::SQL_TYPE_DATE => :date,
+          ODBC::SQL_TIME => :time,
+          ODBC::SQL_TYPE_TIME => :time,
+          ODBC::SQL_DATETIME => :datetime,
+          ODBC::SQL_TIMESTAMP => :datetime,
+          ODBC::SQL_TYPE_TIMESTAMP => :datetime,
+          ODBC::SQL_DECIMAL => :decimal,
+          ODBC::SQL_NUMERIC => :decimal,
+          ODBC::SQL_INTEGER => :integer,
+          ODBC::SQL_FLOAT => :float,
+          ODBC::SQL_REAL => :float,
+          ODBC::SQL_DOUBLE => :float,
+          ODBC::SQL_LONGVARBINARY => :binary,
+          ODBC::SQL_VARBINARY => :binary,
+          ODBC::SQL_BINARY => :binary,
+        }
+      end
+
       # override columns initializer
       def columns(table_name, _name = nil)
         Rails.logger.debug("column initializer in As400OdbcAdapter")
@@ -94,27 +117,6 @@ module ODBCAdapter
 
           args = { sql_type: sql_type_str, type: col_sql_type, limit: col_limit }
 #          args = { sql_type: col_sql_type, type: col_sql_type, limit: col_limit }
-
-          type_odbc_to_ruby = {
-            ODBC::SQL_CHAR => :string,
-            ODBC::SQL_VARCHAR => :string,
-            ODBC::SQL_DATE => :date,
-            ODBC::SQL_TYPE_DATE => :date,
-            ODBC::SQL_TIME => :time,
-            ODBC::SQL_TYPE_TIME => :time,
-            ODBC::SQL_DATETIME => :datetime,
-            ODBC::SQL_TIMESTAMP => :datetime,
-            ODBC::SQL_TYPE_TIMESTAMP => :datetime,
-            ODBC::SQL_DECIMAL => :decimal,
-            ODBC::SQL_NUMERIC => :decimal,
-            ODBC::SQL_INTEGER => :integer,
-            ODBC::SQL_FLOAT => :float,
-            ODBC::SQL_REAL => :float,
-            ODBC::SQL_DOUBLE => :float,
-            ODBC::SQL_LONGVARBINARY => :binary,
-            ODBC::SQL_VARBINARY => :binary,
-            ODBC::SQL_BINARY => :binary,
-          }
 
           Rails.logger.debug "No ruby type for odbc type #{col_sql_type} found" if type_odbc_to_ruby[col_sql_type].nil?
           args[:type] = (type_odbc_to_ruby[col_sql_type] || col_sql_type)
