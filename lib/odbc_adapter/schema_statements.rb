@@ -92,7 +92,7 @@ module ODBCAdapter
       stmt   = @connection.primary_keys(native_case(table_name.to_s))
       result = stmt.fetch_all || []
       stmt.drop unless stmt.nil?
-      result[0] && result[0][3]
+      result[0] && result[0][3]&.downcase
     end
 
     def foreign_keys(table_name)
