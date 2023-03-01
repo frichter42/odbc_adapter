@@ -130,7 +130,7 @@ module ActiveRecord
       # Disconnects from the database if already connected. Otherwise, this
       # method does nothing.
       def disconnect!
-        @connection.disconnect if @connection.connected?
+        (@connection.disconnect rescue nil) if @connection.connected?
       end
 
       # Build a new column object from the given options. Effectively the same
