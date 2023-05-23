@@ -58,6 +58,8 @@ module ODBCAdapter
               column_types[column_names[i]] = ActiveModel::Type::String.new(:limit => odbc_col_info.length)
             elsif type == :date
               column_types[column_names[i]] = ActiveModel::Type::Date.new
+            elsif type == :time
+              column_types[column_names[i]] = ActiveModel::Type::Time.new
             elsif type == :datetime
               column_types[column_names[i]] = ActiveModel::Type::DateTime.new
             end
