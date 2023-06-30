@@ -64,10 +64,13 @@ module ODBCAdapter
         end
       end
 
+      # see sysibm.sqltypeinfo
       def type_odbc_to_ruby
         {
           ODBC::SQL_CHAR => :string,
+          -8 => :string,  # NVARCHAR
           ODBC::SQL_VARCHAR => :string,
+          -9 => :string,  # NVARCHAR
           ODBC::SQL_DATE => :date,
           ODBC::SQL_TYPE_DATE => :date,
           ODBC::SQL_TIME => :time,
@@ -78,12 +81,16 @@ module ODBCAdapter
           ODBC::SQL_DECIMAL => :decimal,
           ODBC::SQL_NUMERIC => :decimal,
           ODBC::SQL_INTEGER => :integer,
+          ODBC::SQL_BIGINT => :decimal,
+          ODBC::SQL_SMALLINT => :integer,
           ODBC::SQL_FLOAT => :float,
           ODBC::SQL_REAL => :float,
           ODBC::SQL_DOUBLE => :float,
           ODBC::SQL_LONGVARBINARY => :binary,
           ODBC::SQL_VARBINARY => :binary,
           ODBC::SQL_BINARY => :binary,
+          -10 => :string,  # NCLOB
+          -1 => :string,   # CLOB
         }
       end
 
@@ -117,7 +124,9 @@ module ODBCAdapter
           args = { sql_type: sql_type_str, type: col_sql_type, limit: col_limit }
 #          args = { sql_type: col_sql_type, type: col_sql_type, limit: col_limit }
 
-          Rails.logger.debug "No ruby type for odbc type #{col_sql_type} found" if type_odbc_to_ruby[col_sql_type].nil?
+          if type_odbc_to_ruby[col_sql_type].nil?
+            Rails.logger.debug "No ruby type for odbc type #{col_sql_type} found. Native Type is '#{col_native_type}'"
+          end
           args[:type] = (type_odbc_to_ruby[col_sql_type] || col_sql_type)
 
           if col_native_type == self.class::BOOLEAN_TYPE
