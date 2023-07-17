@@ -97,8 +97,8 @@ module ODBCAdapter
       # override columns initializer
       def columns(table_name, _name = nil)
         Rails.logger.debug("column initializer in As400OdbcAdapter")
-        schema, table_name = table_name.split(".") if table_name.index(".")
-        stmt   = @connection.columns(native_case(table_name.to_s))
+        table_name_native = native_case(table_name.to_s)
+        stmt   = @connection.columns(table_name_native)
         result = stmt.fetch_all || []
         stmt.drop
 

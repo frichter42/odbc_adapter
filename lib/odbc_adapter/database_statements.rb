@@ -142,7 +142,7 @@ module ODBCAdapter
     # Assume received identifier is in ActiveRecord case.
     def native_case(identifier)
       if database_metadata.upcase_identifiers?
-        identifier =~ /[A-Z0-9]/ ? identifier : identifier.upcase
+        identifier =~ /^[A-Z0-9.]$/ ? identifier : identifier.upcase
       else
         identifier
       end
