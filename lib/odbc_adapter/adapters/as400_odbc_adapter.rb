@@ -192,6 +192,10 @@ module ODBCAdapter
         m.alias_type %r(rowid)i,      'int'
       end
 
+      def extract_table_ref_from_insert_sql(sql)
+        sql.split(/\s+/)[2]
+      end
+
       # in DB/2 for i we need to wrap the INSERT in a SELECT to get auto-generated values
       # we need this to retrieve generated id
       def sql_for_insert(sql, pk, binds)
