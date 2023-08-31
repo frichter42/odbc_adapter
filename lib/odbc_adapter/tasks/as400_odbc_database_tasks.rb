@@ -12,6 +12,7 @@ module ODBCAdapter
       delegate :connection, :establish_connection, :to => ActiveRecord::Base
 
       def structure_dump(filename, flags = {})
+        return nil
         establish_connection(config)
         dump = File.open(filename, "w:utf-8")
 
