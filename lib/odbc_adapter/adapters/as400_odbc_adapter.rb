@@ -11,6 +11,29 @@ module ODBCAdapter
     end
   end
 
+  module DatabaseStatements
+    # we override some methods in odbc_adapter/database_statements
+    # to work around issues on as400
+
+    # Begins the transaction (and turns off auto-committing).
+    def begin_db_transaction
+      execute("set transaction isolation level read committed")
+    end
+
+    # Commits the transaction (and turns on auto-committing).
+    def commit_db_transaction
+      execute("commit")
+      execute("set transaction isolation level no commit")
+    end
+
+    # Rolls back the transaction (and turns on auto-committing). Must be
+    # done if the transaction block raises an exception or returns false.
+    def exec_rollback_db_transaction
+      execute("rollback")
+      execute("set transaction isolation level no commit")
+    end
+  end
+
   module Adapters
     # A default adapter used for databases that are no explicitly listed in the
     # registry. This allows for minimal support for DBMSs for which we don't
