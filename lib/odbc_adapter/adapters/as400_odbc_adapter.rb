@@ -39,9 +39,6 @@ module ODBCAdapter
     # registry. This allows for minimal support for DBMSs for which we don't
     # have an explicit adapter.
     class As400ODBCAdapter < ActiveRecord::ConnectionAdapters::ODBCAdapter
-#      class BindSubstitution < Arel::Visitors::ToSql
-#        include Arel::Visitors
-#      end
 
       PRIMARY_KEY = "INTEGER GENERATED AlWAYS AS IDENTITY"
 
@@ -49,8 +46,7 @@ module ODBCAdapter
       # sent to the DBMS (to attempt to get as much coverage as possible for
       # DBMSs we don't support).
       def arel_visitor
-#        BindSubstitution.new(self)
-        Arel::Visitors::PostgreSQL.new(self)
+        Arel::Visitors::ODBC_AS400.new(self)
       end
 
       # Explicitly turning off prepared_statements in the as400 adapter because
@@ -229,6 +225,83 @@ module ODBCAdapter
 
         sql = "select #{quote_column_name(pk)} from final table (#{sql})" if pk
         [sql, binds]
+      end
+    end
+  end
+end
+
+# we took part of this code from ruby-ibmdb (Apache License)
+module Arel
+  module Visitors
+    class Visitor
+    end
+
+    class ODBC_AS400 < Arel::Visitors::ToSql
+      private
+        def visit_Arel_Nodes_Limit(o, collector)
+          collector << " LIMIT "
+          visit(o.expr, collector)
+        end
+
+        def visit_Arel_Nodes_Offset(o, collector)
+          collector << " OFFSET "
+          visit o.expr, collector
+        end
+
+        def visit_Arel_Nodes_ValuesList(o, collector)
+          collector << "VALUES "
+          o.rows.each_with_index do |row, i|
+            collector << ", " unless i == 0
+            collector << "("
+            row.each_with_index do |value, k|
+            collector << ", " unless k == 0
+            case value
+              when Nodes::SqlLiteral, Nodes::BindParam, ActiveModel::Attribute
+                collector = visit(value, collector)
+              else
+                collector << quote(value).to_s
+            end
+            collector << ")"
+          end
+          collector
+        end
+
+        def visit_Arel_Nodes_SelectStatement o, collector
+          if o.with
+            collector = visit o.with, collector
+            collector << " "
+          end
+
+          collector = o.cores.inject(collector) { |c,x|
+            visit_Arel_Nodes_SelectCore(x, c)
+          }
+
+          unless o.orders.empty?
+            collector << " ORDER BY "
+            len = o.orders.length - 1
+            o.orders.each_with_index { |x, i|
+              collector = visit(x, collector)
+              collector << ", " unless len == i
+            }
+          end
+
+          if (o.offset && o.limit)
+            visit_Arel_Nodes_Limit(o.limit, collector)
+            visit_Arel_Nodes_Offset(o.offset, collector)
+          elsif (o.offset && o.limit.nil?)
+            collector << " OFFSET "
+            visit o.offset.expr, collector
+            collector << " ROWS "
+            maybe_visit o.lock, collector
+          else
+            visit_Arel_Nodes_SelectOptions(o, collector)
+          end
+        end
+
+        # Locks are not supported in SQLite
+        def visit_Arel_Nodes_Lock(o, collector)
+          collector
+        end
       end
     end
   end
