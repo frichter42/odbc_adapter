@@ -299,7 +299,6 @@ module Arel
 #          end
 #        end
 
-      end
     end
   end
 end
