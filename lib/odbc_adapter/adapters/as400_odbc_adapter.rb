@@ -248,24 +248,6 @@ module Arel
           visit o.expr, collector
         end
 
-        def visit_Arel_Nodes_ValuesList(o, collector)
-          collector << "VALUES "
-          o.rows.each_with_index do |row, i|
-            collector << ", " unless i == 0
-            collector << "("
-            row.each_with_index do |value, k|
-            collector << ", " unless k == 0
-            case value
-              when Nodes::SqlLiteral, Nodes::BindParam, ActiveModel::Attribute
-                collector = visit(value, collector)
-              else
-                collector << quote(value).to_s
-            end
-            collector << ")"
-          end
-          collector
-        end
-
         def visit_Arel_Nodes_SelectStatement o, collector
           if o.with
             collector = visit o.with, collector
@@ -298,10 +280,25 @@ module Arel
           end
         end
 
-        # Locks are not supported in SQLite
+        # Locks are not supported in DB2
         def visit_Arel_Nodes_Lock(o, collector)
           collector
         end
+
+        # implement case insensitive matches
+#        def visit_Arel_Nodes_Matches(o, collector)
+#          op = o.case_sensitive ? " LIKE " : " LIKE "
+#          collector = "UPPER(", visit o.left, ")", collector
+#          collector << op
+#          collector = "UPPER(", infix_value o, ")", 
+#          if o.escape
+#            collector << " ESCAPE "
+#            visit o.escape, collector
+#          else
+#            collector
+#          end
+#        end
+
       end
     end
   end
