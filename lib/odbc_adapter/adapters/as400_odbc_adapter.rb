@@ -108,8 +108,8 @@ module ODBCAdapter
           ODBC::SQL_LONGVARBINARY => :binary,
           ODBC::SQL_VARBINARY => :binary,
           ODBC::SQL_BINARY => :binary,
-          -10 => :string,  # NCLOB
-          -1 => :string,   # CLOB
+          -10 => :text,  # NCLOB
+          -1 => :text,   # CLOB
         }
       end
 
