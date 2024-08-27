@@ -17,7 +17,21 @@ module ODBCAdapter
 
     # Begins the transaction (and turns off auto-committing).
     def begin_db_transaction
-      execute("set transaction isolation level read committed")
+      begin
+        execute("set transaction isolation level read committed")
+      rescue ODBC_UTF8::Error => e
+        msg = e.message.force_encoding("utf-8")
+        if msg.startswith?("HY000 (-428)")
+          # SQL -428 tritt auf, wenn wir schon in einer Transaktion sind
+          # und schon Daten geändert wurden
+          # wir können jetzt den Transaction Isolation Level nicht mehr ändern
+          # Wir können auch kein COMMIT oder ROLLBACK machen, da wir die
+          # Umstände nicht kennen
+          # Deshalb ignorieren wir den Fehler und machen weiter
+        else
+          raise e.class, msg
+        end
+      end
     end
 
     # Commits the transaction (and turns on auto-committing).
@@ -31,6 +45,32 @@ module ODBCAdapter
     def exec_rollback_db_transaction
       execute("rollback")
       execute("set transaction isolation level no commit")
+    end
+
+    # Executes the SQL statement in the context of this connection.
+    # Returns the number of rows affected.
+    def execute(sql, name = nil, binds = [])
+      log(sql, name) do
+        begin
+          if prepared_statements
+            @connection.do(prepare_statement_sub(sql), *prepared_binds(binds))
+          else
+            @connection.do(sql)
+          end
+        rescue ODBC_UTF8::Error => e
+          msg = e.message.force_encoding("utf-8")
+          if sql.downcase == "set transaction isolation level read committed" and msg.starts_with?("HY000 (-428)")
+            # SQL -428 tritt auf, wenn wir schon in einer Transaktion sind
+            # und schon Daten geändert wurden
+            # wir können jetzt den Transaction Isolation Level nicht mehr ändern
+            # Wir können auch kein COMMIT oder ROLLBACK machen, da wir die
+            # Umstände nicht kennen
+            # Deshalb ignorieren wir den Fehler und machen weiter
+          else
+            raise e.class, msg
+          end
+        end
+      end
     end
   end
 

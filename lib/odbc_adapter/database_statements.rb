@@ -16,7 +16,8 @@ module ODBCAdapter
             @connection.do(sql)
           end
         rescue ODBC_UTF8::Error => e
-          raise e.class.new(e.message.force_encoding("utf-8"))
+          msg = e.message.force_encoding("utf-8")
+          raise e.class, msg
         end
       end
     end
