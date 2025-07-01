@@ -31,6 +31,8 @@ module ActiveRecord
           end
 
         database_metadata = ::ODBCAdapter::DatabaseMetadata.new(connection, config[:encoding_bug])
+        # Rails-8 ?
+        # [connection, logger, config, database_metadata]
         database_metadata.adapter_class.new(connection, logger, config, database_metadata)
       end
 
@@ -85,10 +87,15 @@ module ActiveRecord
       # when a connection is first established.
       attr_reader :database_metadata
 
+      # Rails-8 ?
+      # def initialize(connection)
+      #  connection, logger, config, database_metadata = ActiveRecord::Base.odbc_connection(connection)
       def initialize(connection, logger, config, database_metadata)
         configure_time_options(connection)
         super(connection, logger, config)
         @database_metadata = database_metadata
+        @connection = connection
+        @raw_connection = connection
       end
 
       # Returns the human-readable name of the adapter.

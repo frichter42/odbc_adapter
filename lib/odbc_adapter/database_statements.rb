@@ -29,7 +29,7 @@ module ODBCAdapter
       log(sql, name) do
         begin
           stmt =
-            if prepared_statements
+            if prepared_statements or prepare
               @connection.run(prepare_statement_sub(sql), *prepared_binds(binds))
             else
               @connection.run(sql)
@@ -67,9 +67,13 @@ module ODBCAdapter
           end
           ActiveRecord::Result.new(column_names, values, column_types)
         rescue ODBC_UTF8::Error => e
-          raise e.class.new(e.message.force_encoding("utf-8"))
+          raise e.class.new(e.message.force_encoding(Encoding::UTF_8))
         end
       end
+    end
+
+    def internal_exec_query(sql, name = "SQL", binds = [], prepare: false, async: false) # :nodoc:
+      exec_query(sql, name, binds, prepare: prepare)
     end
 
     # Executes delete +sql+ statement in the context of this connection using
@@ -166,7 +170,7 @@ module ODBCAdapter
     end
 
     def prepared_binds(binds)
-      binds.map(&:value_for_database).map { |bind| _type_cast(bind) }
+      binds.map{|bind| bind.type_cast(bind.value_for_database) }
     end
   end
 end

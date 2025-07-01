@@ -50,10 +50,12 @@ module ODBCAdapter
     # Executes the SQL statement in the context of this connection.
     # Returns the number of rows affected.
     def execute(sql, name = nil, binds = [])
+      STDERR.puts "SQL: '#{sql}'"
       log(sql, name) do
         begin
           if prepared_statements
-            @connection.do(prepare_statement_sub(sql), *prepared_binds(binds))
+            prepared_binds_tmp = prepared_binds(binds)
+            @connection.do(prepare_statement_sub(sql), *prepared_binds_tmp)
           else
             @connection.do(sql)
           end
@@ -72,6 +74,76 @@ module ODBCAdapter
         end
       end
     end
+
+    # Executes +sql+ statement in the context of this connection using
+    # +binds+ as the bind substitutes. +name+ is logged along with
+    # the executed +sql+ statement.
+    def exec_query(sql, name = 'SQL', binds = [], prepare: false) # rubocop:disable Lint/UnusedMethodArgument
+      log(sql, name) do
+        begin
+          stmt =
+            if prepared_statements or prepare
+              prepared_binds_tmp = prepared_binds(binds)
+binding.break if binds[2]&.value=='LAG'
+              @connection.run(prepare_statement_sub(sql), *prepared_binds_tmp)
+            else
+              @connection.run(sql)
+            end
+
+          columns = stmt.columns
+          values  = stmt.to_a
+          stmt.drop
+
+          values = dbms_type_cast(columns.values, values)
+          column_names = columns.keys.map { |key| format_case(key) }
+          column_types = {}
+          columns.keys.each_with_index do |col, i|
+            odbc_col_info = columns.values[i]
+            type = (type_odbc_to_ruby[odbc_col_info.type] rescue odbc_col_info.type)
+            sql_type = odbc_col_info.type
+
+            if type == :integer
+              column_types[column_names[i]] = ActiveModel::Type::Integer.new(:precision => odbc_col_info.precision)
+            elsif type == :decimal
+              if odbc_col_info.scale > 0
+                column_types[column_names[i]] = ActiveModel::Type::Decimal.new(:precision => odbc_col_info.precision, :scale => odbc_col_info.scale)
+              else
+                column_types[column_names[i]] = ActiveRecord::Type::DecimalWithoutScale.new(:precision => odbc_col_info.precision)
+              end
+            elsif type == :string
+              column_types[column_names[i]] = ActiveModel::Type::String.new(:limit => odbc_col_info.length)
+            elsif type == :date
+              column_types[column_names[i]] = ActiveModel::Type::Date.new
+            elsif type == :time
+              column_types[column_names[i]] = ActiveModel::Type::Time.new
+            elsif type == :datetime
+              column_types[column_names[i]] = ActiveModel::Type::DateTime.new(precision: 3)
+            end
+          end
+          ActiveRecord::Result.new(column_names, values, column_types)
+        rescue ODBC_UTF8::Error => e
+          raise e.class.new(e.message.force_encoding(Encoding::UTF_8))
+        end
+      end
+    end
+
+    def prepared_binds(binds)
+      binds.map{|bind|
+        log("As400OdbcAdapter: BIND: class=#{bind.class} value=#{(bind.value rescue bind)}") do
+          if bind.respond_to?(:value_for_database)
+            v = bind.value_for_database
+            v_casted = bind.type_cast(v)
+            # work around defect type handling for timestamps in ODBC driver
+            if bind.type.class == ActiveRecord::Type::DateTime
+              v_casted = v.strftime("%F %T.%N").slice(0, bind.type.precision)
+            end
+          else
+            v_casted = bind
+          end
+          v_casted
+        end
+      }
+    end
   end
 
   module Adapters
@@ -80,7 +152,7 @@ module ODBCAdapter
     # have an explicit adapter.
     class As400ODBCAdapter < ActiveRecord::ConnectionAdapters::ODBCAdapter
 
-      PRIMARY_KEY = "INTEGER GENERATED AlWAYS AS IDENTITY"
+      PRIMARY_KEY = "INTEGER GENERATED ALWAYS AS IDENTITY"
 
       # Using a BindVisitor so that the SQL string gets substituted before it is
       # sent to the DBMS (to attempt to get as much coverage as possible for
@@ -92,9 +164,9 @@ module ODBCAdapter
       # Explicitly turning off prepared_statements in the as400 adapter because
       # DB2/400 does only understand "where foo = ?", not "where foo = $1"
       # can we do anything about this?
-      def prepared_statements
-        false
-      end
+      # def prepared_statements
+        # true
+      # end
 
       # Turning off support for migrations because there is no information to
       # go off of for what syntax the DBMS will expect.
