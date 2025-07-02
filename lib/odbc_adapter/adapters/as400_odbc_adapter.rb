@@ -131,12 +131,16 @@ binding.break if binds[2]&.value=='LAG'
       binds.map{|bind|
         log("As400OdbcAdapter: BIND: class=#{bind.class} value=#{(bind.value rescue bind)}") do
           if bind.respond_to?(:value_for_database)
-            v = bind.value_for_database
-            v_casted = bind.type_cast(v)
+            v_casted = bind.value_for_database
+            # v_casted = bind.type_cast(v)
             # work around defect type handling for timestamps in ODBC driver
-            if bind.type.class == ActiveRecord::Type::DateTime
-              v_casted = v.strftime("%F %T.%N").slice(0, bind.type.precision)
+            if bind.type.class == ActiveModel::Type::Decimal
+              v_casted = v_casted.to_fs(:db)
+            elsif bind.type.class == ActiveRecord::Type::DateTime
+              v_casted = v_casted.strftime("%F %T.%N").slice(0, bind.type.precision)
             end
+          elsif bind.respond_to?(:type_cast)
+            v_casted = bind.type_cast(v)
           else
             v_casted = bind
           end
