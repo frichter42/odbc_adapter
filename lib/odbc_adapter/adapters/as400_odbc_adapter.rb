@@ -49,8 +49,7 @@ module ODBCAdapter
 
     # Executes the SQL statement in the context of this connection.
     # Returns the number of rows affected.
-    def execute(sql, name = nil, binds = [])
-      STDERR.puts "SQL: '#{sql}'"
+    def execute(sql, name = 'SQL', binds = [])
       log(sql, name) do
         begin
           if prepared_statements
@@ -81,10 +80,11 @@ module ODBCAdapter
     def exec_query(sql, name = 'SQL', binds = [], prepare: false) # rubocop:disable Lint/UnusedMethodArgument
       log(sql, name) do
         begin
+          if prepared_statements or prepare
+            prepared_binds_tmp = prepared_binds(binds)
+          end
           stmt =
             if prepared_statements or prepare
-              prepared_binds_tmp = prepared_binds(binds)
-binding.break if binds[2]&.value=='LAG'
               @connection.run(prepare_statement_sub(sql), *prepared_binds_tmp)
             else
               @connection.run(sql)
@@ -122,31 +122,32 @@ binding.break if binds[2]&.value=='LAG'
           end
           ActiveRecord::Result.new(column_names, values, column_types)
         rescue ODBC_UTF8::Error => e
-          raise e.class.new(e.message.force_encoding(Encoding::UTF_8))
+          msg = e.message.force_encoding("utf-8")
+          raise e.class, msg
         end
       end
     end
 
     def prepared_binds(binds)
-      binds.map{|bind|
-        log("As400OdbcAdapter: BIND: class=#{bind.class} value=#{(bind.value rescue bind)}") do
-          if bind.respond_to?(:value_for_database)
-            v_casted = bind.value_for_database
-            # v_casted = bind.type_cast(v)
-            # work around defect type handling for timestamps in ODBC driver
-            if bind.type.class == ActiveModel::Type::Decimal
-              v_casted = v_casted.to_fs(:db)
-            elsif bind.type.class == ActiveRecord::Type::DateTime
-              v_casted = v_casted.strftime("%F %T.%N").slice(0, bind.type.precision)
-            end
-          elsif bind.respond_to?(:type_cast)
-            v_casted = bind.type_cast(v)
-          else
-            v_casted = bind
+      res = binds.map{|bind|
+        if bind.respond_to?(:value_for_database)
+          v_casted = bind.value_for_database
+          # v_casted = bind.type_cast(v)
+          # work around defect type handling for timestamps in ODBC driver
+          if bind.type.class == ActiveRecord::Type::DateTime
+            v_casted = v_casted.strftime("%F %T.%N").slice(0, bind.type.precision)
+          elsif v_casted.respond_to?(:to_fs)
+            v_casted = (v_casted.to_fs(:db) rescue v_casted)
           end
-          v_casted
+        elsif bind.respond_to?(:type_cast)
+          v_casted = bind.type_cast(v)
+        else
+          v_casted = bind
         end
+        v_casted
       }
+      logger.debug("As400OdbcAdapter: binds: #{res.join('|')}")
+      res
     end
   end
 
@@ -231,7 +232,7 @@ binding.break if binds[2]&.value=='LAG'
 
       # override columns initializer
       def columns(table_name, _name = nil)
-        Rails.logger.debug("column initializer in As400OdbcAdapter")
+        # Rails.logger.debug("column initializer in As400OdbcAdapter")
         table_name_native = native_case(table_name.to_s)
         stmt   = @connection.columns(table_name_native)
         result = stmt.fetch_all || []
