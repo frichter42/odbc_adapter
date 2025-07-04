@@ -67,7 +67,12 @@ module ODBCAdapter
             # Wir können auch kein COMMIT oder ROLLBACK machen, da wir die
             # Umstände nicht kennen
             # Deshalb ignorieren wir den Fehler und machen weiter
+            logger.warn("As400OdbcAdapter: #{e.class}: #{msg}, ignored")
+            logger.warn(e.backtrace[0, 30].join("\n\t"))
           else
+            # logger.error("As400OdbcAdapter: #{e.class}: #{msg}")
+            logger.error(e)
+            logger.error(e.backtrace[0, 30].join("\n\t"))
             raise e.class, msg
           end
         end
@@ -123,6 +128,9 @@ module ODBCAdapter
           ActiveRecord::Result.new(column_names, values, column_types)
         rescue ODBC_UTF8::Error => e
           msg = e.message.force_encoding("utf-8")
+          # logger.error("As400OdbcAdapter: #{e.class}: #{msg}")
+          logger.error(e)
+          logger.error(e.backtrace[0, 30].join("\n\t"))
           raise e.class, msg
         end
       end
@@ -146,7 +154,9 @@ module ODBCAdapter
         end
         v_casted
       }
-      logger.debug("As400OdbcAdapter: binds: #{res.join('|')}")
+      # we log a maximum of 300 chars of inspect-output
+      # this should include complete varchar strings (size 250 by default)
+      logger.debug("As400OdbcAdapter: binds: #{res.map{|bind| bind.inspect[0,300]}.join('|')}") unless res.empty?
       res
     end
   end
