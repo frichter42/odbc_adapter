@@ -31,9 +31,15 @@ module ActiveRecord
           end
 
         database_metadata = ::ODBCAdapter::DatabaseMetadata.new(connection, config[:encoding_bug])
+        # connection = database_metadata.adapter_class.new(connection, logger, config, database_metadata)
+        connection = database_metadata.adapter_class.new(config)
+        @connection = connection
+        @raw_connection = connection
         # Rails-8 ?
-        # [connection, logger, config, database_metadata]
-        database_metadata.adapter_class.new(connection, logger, config, database_metadata)
+        # if ActiveRecord.version >= "7.1"
+        [connection, logger, config, database_metadata]
+        # else
+        # end
       end
 
       private
@@ -87,13 +93,18 @@ module ActiveRecord
       # when a connection is first established.
       attr_reader :database_metadata
 
-      # Rails-8 ?
-      # def initialize(connection)
-      #  connection, logger, config, database_metadata = ActiveRecord::Base.odbc_connection(connection)
-      def initialize(connection, logger, config, database_metadata)
+      # def initialize(connection, logger, config, database_metadata)
+        # Rails-8 ?
+      def initialize(config)
+binding.break
+        connection, logger, config, database_metadata = ActiveRecord::Base.odbc_connection(config)
         configure_time_options(connection)
         super(connection, logger, config)
         @database_metadata = database_metadata
+
+        # Rails-8 ?
+        return unless ActiveRecord.version >= "7.1"
+
         @connection = connection
         @raw_connection = connection
       end
