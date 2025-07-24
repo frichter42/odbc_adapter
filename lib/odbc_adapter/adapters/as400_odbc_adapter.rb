@@ -57,7 +57,7 @@ module ODBCAdapter
             if prepared_statements or prepare
               real_sql = prepare_statement_sub(sql)
               # we cache only statements with binds
-              if binds.size > 0 and bind.size <= 20
+              if binds.size > 0 and binds.size <= 30
                 stmt = @statements[real_sql] ||= @connection.prepare(real_sql)
                 begin
                   stmt.execute(*type_casted_binds)
@@ -112,7 +112,7 @@ module ODBCAdapter
             if prepared_statements or prepare
               real_sql = prepare_statement_sub(sql)
               # we cache only statements with binds
-              if binds.size > 0 and binds.size <= 20
+              if binds.size > 0 and binds.size <= 30
                 stmt = @statements[real_sql] ||= @connection.prepare(real_sql)
                 begin
                   stmt.execute(*type_casted_binds)
