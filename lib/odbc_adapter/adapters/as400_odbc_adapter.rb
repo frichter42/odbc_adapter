@@ -49,15 +49,37 @@ module ODBCAdapter
 
     # Executes the SQL statement in the context of this connection.
     # Returns the number of rows affected.
-    def execute(sql, name = 'SQL', binds = [])
+    def execute(sql, name = 'SQL', binds=[])
+      type_casted_binds = type_cast_binds(binds)
       log(sql, name) do
         begin
-          if prepared_statements
-            prepared_binds_tmp = prepared_binds(binds)
-            @connection.do(prepare_statement_sub(sql), *prepared_binds_tmp)
-          else
-            @connection.do(sql)
-          end
+          nrows =
+            if prepared_statements or prepare
+              real_sql = prepare_statement_sub(sql)
+              # we cache only statements with binds
+              if binds.size > 0 and bind.size <= 20
+                stmt = @statements[real_sql] ||= @connection.prepare(real_sql)
+                begin
+                  stmt.execute(*type_casted_binds)
+                rescue ODBC_UTF8::Error => e
+                  if /Stale ODBC::Statement/ =~ e.message
+                    # re-prepare statement
+                    stmt = @connection.prepare(real_sql)
+                    stmt.execute(*type_casted_binds)
+                  else
+                    raise
+                  end
+                end
+                nrows = stmt.nrows
+                stmt.close # does this change stmt.nrows?
+                nrows
+              else
+                @connection.do(real_sql, *type_casted_binds)
+              end
+            else
+              @connection.do(sql, *type_casted_binds)
+            end
+
         rescue ODBC_UTF8::Error => e
           msg = e.message.force_encoding("utf-8")
           if sql.downcase == "set transaction isolation level read committed" and msg.starts_with?("HY000 (-428)")
@@ -83,21 +105,36 @@ module ODBCAdapter
     # +binds+ as the bind substitutes. +name+ is logged along with
     # the executed +sql+ statement.
     def exec_query(sql, name = 'SQL', binds = [], prepare: false) # rubocop:disable Lint/UnusedMethodArgument
+      type_casted_binds = type_cast_binds(binds)
       log(sql, name) do
         begin
-          if prepared_statements or prepare
-            prepared_binds_tmp = prepared_binds(binds)
-          end
           stmt =
             if prepared_statements or prepare
-              @connection.run(prepare_statement_sub(sql), *prepared_binds_tmp)
+              real_sql = prepare_statement_sub(sql)
+              # we cache only statements with binds
+              if binds.size > 0 and binds.size <= 20
+                stmt = @statements[real_sql] ||= @connection.prepare(real_sql)
+                begin
+                  stmt.execute(*type_casted_binds)
+                rescue ODBC_UTF8::Error => e
+                  if /Stale ODBC::Statement/ =~ e.message
+                    # re-prepare statement
+                    stmt = @connection.prepare(real_sql)
+                    stmt.execute(*type_casted_binds)
+                  else
+                    raise
+                  end
+                end
+              else
+                @connection.run(sql, *type_casted_binds)
+              end
             else
-              @connection.run(sql)
+              @connection.run(sql, *type_casted_binds)
             end
 
           columns = stmt.columns
           values  = stmt.to_a
-          stmt.drop
+          stmt.close
 
           values = dbms_type_cast(columns.values, values)
           column_names = columns.keys.map { |key| format_case(key) }
@@ -136,7 +173,7 @@ module ODBCAdapter
       end
     end
 
-    def prepared_binds(binds)
+    def type_cast_binds(binds)
       res = binds.map{|bind|
         if bind.respond_to?(:value_for_database)
           v_casted = bind.value_for_database

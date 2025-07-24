@@ -14,6 +14,8 @@ require 'odbc_adapter/database_metadata'
 require 'odbc_adapter/registry'
 require 'odbc_adapter/version'
 
+require "active_record/connection_adapters/statement_pool"
+
 module ActiveRecord
   class Base
     class << self
@@ -148,6 +150,18 @@ module ActiveRecord
       # rubocop:disable Metrics/ParameterLists
       def new_column(name, default, sql_type_metadata, null, table_name, default_function = nil, collation = nil, native_type = nil)
         ::ODBCAdapter::Column.new(name, default, sql_type_metadata, null, table_name, default_function, collation, native_type)
+      end
+
+      class StatementPool < ConnectionAdapters::StatementPool # :nodoc:
+        private
+
+        def dealloc(stmt)
+          # stmt.close unless stmt.closed?
+        end
+      end
+
+      def build_statement_pool
+        StatementPool.new(self.class.type_cast_config_to_integer(@config[:statement_limit]))
       end
 
       protected
