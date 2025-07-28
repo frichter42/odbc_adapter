@@ -181,6 +181,8 @@ module ODBCAdapter
           # work around defect type handling for timestamps in ODBC driver
           if bind.type.class == ActiveRecord::Type::DateTime
             v_casted = v_casted.strftime("%F %T.%N").slice(0, bind.type.precision)
+          elsif bind.type.class == ActiveRecord::Type::Time
+            v_casted = v_casted.strftime("%T")
           elsif v_casted.respond_to?(:to_fs)
             v_casted = (v_casted.to_fs(:db) rescue v_casted)
           end
