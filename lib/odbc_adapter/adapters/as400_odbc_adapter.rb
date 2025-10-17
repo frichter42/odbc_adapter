@@ -16,9 +16,9 @@ module ODBCAdapter
     # to work around issues on as400
 
     # Begins the transaction (and turns off auto-committing).
-    def begin_db_transaction
+    def begin_db_transaction(isolation: :repeatable_read)
       begin
-        execute("set transaction isolation level read committed")
+        execute "SET TRANSACTION ISOLATION LEVEL #{transaction_isolation_levels.fetch(isolation)}"
       rescue ODBC_UTF8::Error => e
         msg = e.message.force_encoding("utf-8")
         if msg.startswith?("HY000 (-428)")
@@ -36,15 +36,19 @@ module ODBCAdapter
 
     # Commits the transaction (and turns on auto-committing).
     def commit_db_transaction
-      execute("commit")
-      execute("set transaction isolation level no commit")
+      execute("COMMIT")
+      execute("SET TRANSACTION ISOLATION LEVEL NO COMMIT")
+    end
+
+    def begin_isolated_db_transaction(isolation)
+      begin_db_transaction(isolation: isolation)
     end
 
     # Rolls back the transaction (and turns on auto-committing). Must be
     # done if the transaction block raises an exception or returns false.
     def exec_rollback_db_transaction
-      execute("rollback")
-      execute("set transaction isolation level no commit")
+      execute("ROLLBACK")
+      execute("SET TRANSACTION ISOLATION LEVEL NO COMMIT")
     end
 
     # Executes the SQL statement in the context of this connection.
@@ -82,7 +86,7 @@ module ODBCAdapter
 
         rescue ODBC_UTF8::Error => e
           msg = e.message.force_encoding("utf-8")
-          if sql.downcase == "set transaction isolation level read committed" and msg.starts_with?("HY000 (-428)")
+          if sql.upcase.starts_with?("SET TRANSACTION ISOLATION LEVEL") and msg.starts_with?("HY000 (-428)")
             # SQL -428 tritt auf, wenn wir schon in einer Transaktion sind
             # und schon Daten geändert wurden
             # wir können jetzt den Transaction Isolation Level nicht mehr ändern
@@ -225,6 +229,10 @@ module ODBCAdapter
       # Turning off support for migrations because there is no information to
       # go off of for what syntax the DBMS will expect.
       def supports_migrations?
+        true
+      end
+
+      def supports_transaction_isolation?
         true
       end
 
@@ -444,11 +452,6 @@ module Arel
           else
             visit_Arel_Nodes_SelectOptions(o, collector)
           end
-        end
-
-        # Locks are not supported in DB2
-        def visit_Arel_Nodes_Lock(o, collector)
-          collector
         end
 
         # implement case insensitive matches
