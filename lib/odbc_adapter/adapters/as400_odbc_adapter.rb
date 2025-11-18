@@ -331,9 +331,9 @@ module ODBCAdapter
             args[:scale]     = col_scale || 0
             args[:precision] = col_limit
 #            args[:sql_type] = "#{col_native_type}(#{col_limit},#{col_scale || 0})"
-            if args[:scale] == 0 and col_limit < 10
-              args[:type] = :integer
-            end
+#            if args[:scale] == 0 and col_limit < 10
+#              args[:type] = :integer
+#            end
           end
           sql_type_metadata = ActiveRecord::ConnectionAdapters::SqlTypeMetadata.new(**args)
 
