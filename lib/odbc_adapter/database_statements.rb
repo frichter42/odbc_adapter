@@ -29,7 +29,7 @@ module ODBCAdapter
       log(sql, name) do
         begin
           stmt =
-            if prepared_statements or prepare
+            if prepared_statements
               @connection.run(prepare_statement_sub(sql), *prepared_binds(binds))
             else
               @connection.run(sql)
