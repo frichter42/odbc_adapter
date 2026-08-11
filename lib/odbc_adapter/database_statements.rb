@@ -7,13 +7,15 @@ module ODBCAdapter
 
     # Executes the SQL statement in the context of this connection.
     # Returns the number of rows affected.
-    def execute(sql, name = nil, binds = [])
+    def execute(sql, name = nil, binds = [], **)
       log(sql, name) do
         begin
-          if prepared_statements
-            @connection.do(prepare_statement_sub(sql), *prepared_binds(binds))
-          else
-            @connection.do(sql)
+          with_raw_connection do |conn|
+            if prepared_statements
+              conn.do(sql, *prepared_binds(binds))
+            else
+              conn.do(sql)
+            end
           end
         rescue ODBC_UTF8::Error => e
           msg = e.message.force_encoding("utf-8")
@@ -25,44 +27,46 @@ module ODBCAdapter
     # Executes +sql+ statement in the context of this connection using
     # +binds+ as the bind substitutes. +name+ is logged along with
     # the executed +sql+ statement.
-    def exec_query(sql, name = 'SQL', binds = [], prepare: false) # rubocop:disable Lint/UnusedMethodArgument
+    def exec_query(sql, name = "SQL", binds = [], prepare: false, **) # rubocop:disable Lint/UnusedMethodArgument
       log(sql, name) do
         begin
-          stmt =
-            if prepared_statements
-              @connection.run(prepare_statement_sub(sql), *prepared_binds(binds))
-            else
-              @connection.run(sql)
-            end
-
-          columns = stmt.columns
-          values  = stmt.to_a
-          stmt.drop
-
-          values = dbms_type_cast(columns.values, values)
-          column_names = columns.keys.map { |key| format_case(key) }
-          column_types = {}
-          columns.keys.each_with_index do |col, i|
-            odbc_col_info = columns.values[i]
-            type = (type_odbc_to_ruby[odbc_col_info.type] rescue odbc_col_info.type)
-            sql_type = odbc_col_info.type
-
-            if type == :integer
-              column_types[column_names[i]] = ActiveModel::Type::Integer.new(:precision => odbc_col_info.precision)
-            elsif type == :decimal
-              if odbc_col_info.scale > 0
-                column_types[column_names[i]] = ActiveModel::Type::Decimal.new(:precision => odbc_col_info.precision, :scale => odbc_col_info.scale)
+          with_raw_connection do |conn|
+            stmt =
+              if prepared_statements
+                conn.run(prepare_statement_sub(sql), *prepared_binds(binds))
               else
-                column_types[column_names[i]] = ActiveRecord::Type::DecimalWithoutScale.new(:precision => odbc_col_info.precision)
+                conn.run(sql)
               end
-            elsif type == :string
-              column_types[column_names[i]] = ActiveModel::Type::String.new(:limit => odbc_col_info.length)
-            elsif type == :date
-              column_types[column_names[i]] = ActiveModel::Type::Date.new
-            elsif type == :time
-              column_types[column_names[i]] = ActiveModel::Type::Time.new
-            elsif type == :datetime
-              column_types[column_names[i]] = ActiveModel::Type::DateTime.new
+
+            columns = stmt.columns
+            values  = stmt.to_a
+            stmt.drop
+
+            values = dbms_type_cast(columns.values, values)
+            column_names = columns.keys.map { |key| format_case(key) }
+            column_types = {}
+            columns.keys.each_with_index do |col, i|
+              odbc_col_info = columns.values[i]
+              type = (type_odbc_to_ruby[odbc_col_info.type] rescue odbc_col_info.type)
+              sql_type = odbc_col_info.type
+
+              if type == :integer
+                column_types[column_names[i]] = ActiveModel::Type::Integer.new(:precision => odbc_col_info.precision)
+              elsif type == :decimal
+                if odbc_col_info.scale > 0
+                  column_types[column_names[i]] = ActiveModel::Type::Decimal.new(:precision => odbc_col_info.precision, :scale => odbc_col_info.scale)
+                else
+                  column_types[column_names[i]] = ActiveRecord::Type::DecimalWithoutScale.new(:precision => odbc_col_info.precision)
+                end
+              elsif type == :string
+                column_types[column_names[i]] = ActiveModel::Type::String.new(:limit => odbc_col_info.length)
+              elsif type == :date
+                column_types[column_names[i]] = ActiveModel::Type::Date.new
+              elsif type == :time
+                column_types[column_names[i]] = ActiveModel::Type::Time.new
+              elsif type == :datetime
+                column_types[column_names[i]] = ActiveModel::Type::DateTime.new
+              end
             end
           end
           ActiveRecord::Result.new(column_names, values, column_types)
@@ -71,6 +75,7 @@ module ODBCAdapter
         end
       end
     end
+    alias internal_exec_query exec_query
 
     def internal_exec_query(sql, name = "SQL", binds = [], prepare: false, async: false) # :nodoc:
       exec_query(sql, name, binds, prepare: prepare)
@@ -155,13 +160,12 @@ module ODBCAdapter
 
     # Assume column is nullable if nullable == SQL_NULLABLE_UNKNOWN
     def nullability(col_name, is_nullable, nullable)
-      not_nullable = (!is_nullable || !nullable.to_s.match('NO').nil?)
+      not_nullable = !is_nullable || !nullable.to_s.match("NO").nil?
       result = !(not_nullable || nullable == SQL_NO_NULLS)
 
-      # HACK!
-      # MySQL native ODBC driver doesn't report nullability accurately.
-      # So force nullability of 'id' columns
-      col_name == 'id' ? false : result
+      # Force 'id' columns to be non-nullable as some ODBC drivers don't
+      # report nullability accurately
+      col_name == "id" ? false : result
     end
 
     # subsitute numbered $x placeholders with more standard ?
@@ -170,7 +174,7 @@ module ODBCAdapter
     end
 
     def prepared_binds(binds)
-      binds.map{|bind| bind.type_cast(bind.value_for_database) }
+      binds.map(&:value_for_database).map { |bind| _type_cast(bind) }
     end
   end
 end

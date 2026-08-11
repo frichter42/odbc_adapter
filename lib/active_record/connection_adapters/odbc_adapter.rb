@@ -1,74 +1,22 @@
-require 'active_record'
-require 'odbc'
+require "active_record"
+require "odbc"
 require 'odbc_utf8'
 
-require 'odbc_adapter/database_limits'
-require 'odbc_adapter/database_statements'
-require 'odbc_adapter/error'
-require 'odbc_adapter/quoting'
-require 'odbc_adapter/schema_statements'
+require "odbc_adapter/database_limits"
+require "odbc_adapter/database_statements"
+require "odbc_adapter/error"
+require "odbc_adapter/quoting"
+require "odbc_adapter/schema_statements"
 
-require 'odbc_adapter/column'
-require 'odbc_adapter/column_metadata'
-require 'odbc_adapter/database_metadata'
-require 'odbc_adapter/registry'
-require 'odbc_adapter/version'
+require "odbc_adapter/column"
+require "odbc_adapter/column_metadata"
+require "odbc_adapter/database_metadata"
+require "odbc_adapter/registry"
+require "odbc_adapter/version"
 
 require "active_record/connection_adapters/statement_pool"
 
 module ActiveRecord
-  class Base
-    class << self
-      # Build a new ODBC connection with the given configuration.
-      def odbc_connection(config)
-        config = config.symbolize_keys
-
-        connection, config =
-          if config.key?(:dsn)
-            odbc_dsn_connection(config)
-          elsif config.key?(:conn_str)
-            odbc_conn_str_connection(config)
-          else
-            raise ArgumentError, 'No data source name (:dsn) or connection string (:conn_str) specified.'
-          end
-
-        database_metadata = ::ODBCAdapter::DatabaseMetadata.new(connection, config[:encoding_bug])
-        # Rails-8 ?
-        # [connection, logger, config, database_metadata]
-        database_metadata.adapter_class.new(connection, logger, config, database_metadata)
-      end
-
-      private
-
-      # Connect using a predefined DSN.
-      def odbc_dsn_connection(config)
-        username   = config[:username] ? config[:username].to_s : nil
-        password   = config[:password] ? config[:password].to_s : nil
-        odbc_module = config[:encoding] == 'utf8' ? ODBC_UTF8 : ODBC
-        connection = odbc_module.connect(config[:dsn], username, password)
-
-        # encoding_bug indicates that the driver is using non ASCII and has the issue referenced here https://github.com/larskanis/ruby-odbc/issues/2
-        [connection, config.merge(username: username, password: password, encoding_bug: config[:encoding] == 'utf8')]
-      end
-
-      # Connect using ODBC connection string
-      # Supports DSN-based or DSN-less connections
-      # e.g. "DSN=virt5;UID=rails;PWD=rails"
-      #      "DRIVER={OpenLink Virtuoso};HOST=carlmbp;UID=rails;PWD=rails"
-      def odbc_conn_str_connection(config)
-        attrs = config[:conn_str].split(';').map { |option| option.split('=', 2) }.to_h
-        odbc_module = attrs['ENCODING'] == 'utf8' ? ODBC_UTF8 : ODBC
-        driver = odbc_module::Driver.new
-        driver.name = 'odbc'
-        driver.attrs = attrs
-
-        connection = odbc_module::Database.new.drvconnect(driver)
-        # encoding_bug indicates that the driver is using non ASCII and has the issue referenced here https://github.com/larskanis/ruby-odbc/issues/2
-        [connection, config.merge(driver: driver, encoding: attrs['ENCODING'], encoding_bug: attrs['ENCODING'] == 'utf8')]
-      end
-    end
-  end
-
   module ConnectionAdapters
     class ODBCAdapter < AbstractAdapter
       include ::ODBCAdapter::DatabaseLimits
@@ -76,8 +24,8 @@ module ActiveRecord
       include ::ODBCAdapter::Quoting
       include ::ODBCAdapter::SchemaStatements
 
-      ADAPTER_NAME = 'ODBC'.freeze
-      BOOLEAN_TYPE = 'BOOLEAN'.freeze
+      ADAPTER_NAME = "ODBC".freeze
+      BOOLEAN_TYPE = "BOOLEAN".freeze
 
       ERR_DUPLICATE_KEY_VALUE                     = 23_505
       ERR_QUERY_TIMED_OUT                         = 57_014
@@ -89,13 +37,82 @@ module ActiveRecord
       # when a connection is first established.
       attr_reader :database_metadata
 
-      # Rails-8 ?
-      # def initialize(connection)
-      #  connection, logger, config, database_metadata = ActiveRecord::Base.odbc_connection(connection)
-      def initialize(connection, logger, config, database_metadata)
-        configure_time_options(connection)
-        super(connection, logger, config)
+      class << self
+        def new(config_or_connection = nil, *args, **kwargs)
+          if config_or_connection.is_a?(Hash)
+            config = config_or_connection.symbolize_keys
+
+            connection, config = create_odbc_connection(config)
+            database_metadata = ::ODBCAdapter::DatabaseMetadata.new(connection)
+            database_metadata.adapter_class.new(connection, nil, config, database_metadata: database_metadata)
+          elsif config_or_connection.nil? && args.empty? && kwargs.empty?
+            super()
+          else
+            super(config_or_connection, *args, **kwargs) # rubocop:disable Style/SuperArguments
+          end
+        end
+
+        private
+
+        def create_odbc_connection(config)
+          if config.key?(:dsn)
+            odbc_dsn_connection(config)
+          elsif config.key?(:conn_str)
+            odbc_conn_str_connection(config)
+          else
+            raise ArgumentError, "No data source name (:dsn) or connection string (:conn_str) specified."
+          end
+        end
+
+        # Connect using a predefined DSN.
+        def odbc_dsn_connection(config)
+          username   = config[:username]&.to_s
+          password   = config[:password]&.to_s
+
+          # If it includes only the DSN + credentials
+          if (config.keys - %i[adapter dsn username password]).empty?
+            connection = ODBC.connect(config[:dsn], username, password)
+            config = config.merge(username: username, password: password)
+          # Support additional overrides, e.g. host: db.example.com
+          else
+            driver_attrs = config.dup
+                                 .delete_if { |k, _| %i[adapter username password].include?(k) }
+                                 .merge(UID: username, PWD: password)
+
+            driver, connection = odbc_driver_connection(driver_attrs)
+            config = config.merge(driver: driver)
+          end
+
+          [connection, config]
+        end
+
+        # Connect using ODBC connection string
+        # Supports DSN-based or DSN-less connections
+        # e.g. "DSN=virt5;UID=rails;PWD=rails"
+        #      "DRIVER={OpenLink Virtuoso};HOST=carlmbp;UID=rails;PWD=rails"
+        def odbc_conn_str_connection(config)
+          driver_attrs = config[:conn_str].split(";").map { |option| option.split("=", 2) }.to_h
+          driver, connection = odbc_driver_connection(driver_attrs)
+
+          [connection, config.merge(driver: driver)]
+        end
+
+        def odbc_driver_connection(driver_attrs)
+          driver = ODBC::Driver.new
+          driver.name = "odbc"
+          driver.attrs = driver_attrs.stringify_keys
+
+          connection = ODBC::Database.new.drvconnect(driver)
+
+          [driver, connection]
+        end
+      end
+
+      def initialize(connection, logger = nil, config = {}, database_metadata: nil)
         @database_metadata = database_metadata
+        super(connection, logger, config)
+        @unconfigured_connection = nil
+        configure_time_options(connection)
         @connection = connection
         @raw_connection = connection
       end
@@ -117,39 +134,24 @@ module ActiveRecord
       # includes checking whether the database is actually capable of
       # responding, i.e. whether the connection isn't stale.
       def active?
-        @connection.connected?
+        @connection&.connected? || false
       end
-
-      # Disconnects from the database if already connected, and establishes a
-      # new connection with the database.
-      def reconnect!
-        disconnect!
-        odbc_module = @config[:encoding] == 'utf8' ? ODBC_UTF8 : ODBC
-        @connection =
-          if @config.key?(:dsn)
-            odbc_module.connect(@config[:dsn], @config[:username], @config[:password])
-          else
-            odbc_module::Database.new.drvconnect(@config[:driver])
-          end
-        configure_time_options(@connection)
-        super
-      end
-      alias reset! reconnect!
 
       # Disconnects from the database if already connected. Otherwise, this
       # method does nothing.
       def disconnect!
-        if @connection.connected?
-          @connection.commit
-          @connection.disconnect
+        @lock.synchronize do
+          super
+          @connection&.disconnect if @connection&.connected?
+          @connection = nil
+          @raw_connection = nil
         end
       end
 
       # Build a new column object from the given options. Effectively the same
       # as super except that it also passes in the native type.
-      # rubocop:disable Metrics/ParameterLists
-      def new_column(name, default, sql_type_metadata, null, table_name, default_function = nil, collation = nil, native_type = nil)
-        ::ODBCAdapter::Column.new(name, default, sql_type_metadata, null, table_name, default_function, collation, native_type)
+      def new_column(...)
+        ::ODBCAdapter::Column.new(...)
       end
 
       class StatementPool < ConnectionAdapters::StatementPool # :nodoc:
@@ -169,7 +171,7 @@ module ActiveRecord
       # Build the type map for ActiveRecord
       # Here, ODBC and ODBC_UTF8 constants are interchangeable
       def initialize_type_map(map)
-        map.register_type 'boolean',              Type::Boolean.new
+        map.register_type "boolean",              Type::Boolean.new
         map.register_type ODBC::SQL_CHAR,         Type::String.new
         map.register_type ODBC::SQL_LONGVARCHAR,  Type::Text.new
         map.register_type ODBC::SQL_TINYINT,      Type::Integer.new(limit: 4)
@@ -188,7 +190,7 @@ module ActiveRecord
         map.register_type ODBC::SQL_TIMESTAMP,    Type::DateTime.new
         map.register_type ODBC::SQL_GUID,         Type::String.new
 
-        alias_type map, ODBC::SQL_BIT,            'boolean'
+        alias_type map, ODBC::SQL_BIT,            "boolean"
         alias_type map, ODBC::SQL_VARCHAR,        ODBC::SQL_CHAR
         alias_type map, ODBC::SQL_WCHAR,          ODBC::SQL_CHAR
         alias_type map, ODBC::SQL_WVARCHAR,       ODBC::SQL_CHAR
@@ -206,22 +208,23 @@ module ActiveRecord
         error_number = exception.message[/^\d+/].to_i
 
         if error_number == ERR_DUPLICATE_KEY_VALUE
-          ActiveRecord::RecordNotUnique.new(message, exception)
+          ActiveRecord::RecordNotUnique.new(message)
         elsif error_number == ERR_QUERY_TIMED_OUT || exception.message =~ ERR_QUERY_TIMED_OUT_MESSAGE
-          ::ODBCAdapter::QueryTimeoutError.new(message, exception)
-        elsif exception.message.match(ERR_CONNECTION_FAILED_REGEX) || exception.message =~ ERR_CONNECTION_FAILED_MESSAGE
-          begin
-            reconnect!
-            ::ODBCAdapter::ConnectionFailedError.new(message, exception)
-          rescue => e
-            puts "unable to reconnect #{e}"
-          end
+          ::ODBCAdapter::QueryTimeoutError.new(message)
         else
           super
         end
       end
 
       private
+
+      def reconnect
+        @connection&.disconnect if @connection&.connected?
+        @raw_connection = nil
+        @connection = nil
+        @connection = initialize_connection(@config)
+        @raw_connection = @connection
+      end
 
       # Can't use the built-in ActiveRecord map#alias_type because it doesn't
       # work with non-string keys, and in our case the keys are (almost) all
@@ -235,6 +238,18 @@ module ActiveRecord
       # Ensure ODBC is mapping time-based fields to native ruby objects
       def configure_time_options(connection)
         connection.use_time = true
+      end
+
+      def initialize_connection(config)
+        connection =
+          if config[:driver]
+            ODBC::Database.new.drvconnect(config[:driver])
+          else
+            ODBC.connect(config[:dsn], config[:username], config[:password])
+          end
+
+        configure_time_options(connection)
+        connection
       end
     end
   end

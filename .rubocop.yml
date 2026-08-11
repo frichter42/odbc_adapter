@@ -1,15 +1,23 @@
+inherit_from: .rubocop_todo.yml
+
 AllCops:
+  NewCops: enable
   DisplayCopNames: true
   DisplayStyleGuide: true
-  TargetRubyVersion: 2.1
+  TargetRubyVersion: 3.3
   Exclude:
   - 'vendor/**/*'
+  - '.rspec'
 
 Lint/AmbiguousBlockAssociation:
   Enabled: false
 
 Metrics/AbcSize:
   Enabled: false
+
+Metrics/BlockLength:
+  Exclude:
+  - 'spec/**/*'
 
 Metrics/ClassLength:
   Enabled: false
@@ -20,16 +28,25 @@ Metrics/CyclomaticComplexity:
 Metrics/MethodLength:
   Enabled: false
 
-Metrics/LineLength:
-  Enabled: false
-
 Metrics/PerceivedComplexity:
   Enabled: false
 
 Style/Documentation:
   Enabled: false
 
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+
 Style/PercentLiteralDelimiters:
   PreferredDelimiters:
     default: '[]'
     '%r': '{}'
+
+Layout/HashAlignment:
+  EnforcedColonStyle: table
+
+Layout/FirstArrayElementIndentation:
+  EnforcedStyle: consistent
+
+Style/TrailingCommaInArguments:
+  EnforcedStyleForMultiline: comma

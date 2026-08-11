@@ -4,14 +4,14 @@ module ODBCAdapter
 
     def initialize
       @dbs = {
-        /my.*sql/i  => :MySQL,
         /postgres/i => :PostgreSQL,
+        /snowflake/i => :Snowflake,
         /db2\/400/i => :As400
       }
     end
 
     def adapter_for(reported_name)
-      reported_name = reported_name.downcase.gsub(/\s/, '')
+      reported_name = reported_name.downcase.gsub(/\s/, "")
       found =
         dbs.detect do |pattern, adapter|
           adapter if reported_name =~ pattern
@@ -28,6 +28,7 @@ module ODBCAdapter
 
     def normalize_adapter(adapter)
       return adapter unless adapter.is_a?(Symbol)
+
       require "odbc_adapter/adapters/#{adapter.downcase}_odbc_adapter"
       Adapters.const_get(:"#{adapter}ODBCAdapter")
     end

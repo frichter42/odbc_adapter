@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby:
+          - "3.3"
+          - "3.4"
+          - "4.0"
+        activerecord:
+          - "7.1"
+          - "7.2"
+          - "8.0"
+          - "8.1"
+    continue-on-error: ${{ matrix.ruby == 'head' || matrix.activerecord == 'head' }}
+    name: Ruby ${{ matrix.ruby }} / ActiveRecord ${{ matrix.activerecord }}
+    services:
+      postgres:
+        image: postgres
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: odbc_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      RAILS_VERSION: ${{ matrix.activerecord }}
+      CONN_STR: 'DRIVER={PostgreSQL ANSI};SERVER=localhost;PORT=5432;DATABASE=odbc_test;UID=postgres;'
+      PGHOST: localhost
+      PGUSER: postgres
+      RAILS_ENV: test
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Apt Packages
+        run: >
+          sudo apt-get install
+          unixodbc
+          unixodbc-dev
+          odbc-postgresql
+          odbcinst
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+      - name: Setup PostgreSQL
+        run: |
+          sudo odbcinst -j
+          sudo cat /usr/share/psqlodbc/odbcinst.ini.template
+          sudo odbcinst -i -d -f /usr/share/psqlodbc/odbcinst.ini.template
+      - run: bundle exec rake spec
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-ruby${{ matrix.ruby }}-ar${{ matrix.activerecord }}
+          path: coverage/
+          retention-days: 14
+  RuboCop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Apt Packages
+        run: >
+          sudo apt-get install
+          unixodbc
+          unixodbc-dev
+          odbc-postgresql
+          odbcinst
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ruby
+          bundler-cache: true
+      - run: bundle exec rubocop --color --format github --format clang

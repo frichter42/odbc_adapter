@@ -242,12 +242,12 @@ module ODBCAdapter
 
       # type cast values from DB
       # we cast decimal and numeric to BigDecimal, when having a scale > 0 or a size that does not fit in an int
-      def dbms_type_cast(column, values)
+      def dbms_type_cast(columns, values)
         # Rails.logger.debug("dbms_type_cast called with columns: #{columns.inspect} and values: #{values.inspect}")
         values.each do |row|
           row.each_index do |idx|
-            if [ODBC::SQL_DECIMAL, ODBC::SQL_NUMERIC].include?(column[idx].type)
-              if column[idx].scale == 0 and column[idx].precision < 10
+            if [ODBC::SQL_DECIMAL, ODBC::SQL_NUMERIC].include?(columns[idx].type)
+              if columns[idx].scale == 0 and columns[idx].precision < 10
                 row[idx] = row[idx].to_i
               else
                 row[idx] = row[idx].to_d
