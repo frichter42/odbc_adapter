@@ -77,7 +77,7 @@ module ODBCAdapter
     end
     alias internal_exec_query exec_query
 
-    def internal_exec_query(sql, name = "SQL", binds = [], prepare: false, async: false) # :nodoc:
+    def internal_exec_query(sql, name = "SQL", binds = [], prepare: false, async: false, allow_retry: false) # :nodoc:
       exec_query(sql, name, binds, prepare: prepare)
     end
 
