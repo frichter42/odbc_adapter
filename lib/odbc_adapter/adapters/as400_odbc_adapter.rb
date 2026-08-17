@@ -53,12 +53,12 @@ module ODBCAdapter
 
     # Executes the SQL statement in the context of this connection.
     # Returns the number of rows affected.
-    def execute(sql, name = 'SQL', binds=[])
-      type_casted_binds = type_cast_binds(binds)
+    def execute(sql, name = 'SQL', binds=[], prepare: false)
+      type_casted_binds = prepared_binds(binds)
       log(sql, name) do
         begin
           nrows =
-            if prepared_statements or prepare
+            if prepared_statements || prepare
               real_sql = prepare_statement_sub(sql)
               # we cache only statements with binds
               if binds.size > 0 and binds.size <= 30
@@ -109,7 +109,7 @@ module ODBCAdapter
     # +binds+ as the bind substitutes. +name+ is logged along with
     # the executed +sql+ statement.
     def exec_query(sql, name = 'SQL', binds = [], prepare: false) # rubocop:disable Lint/UnusedMethodArgument
-      type_casted_binds = type_cast_binds(binds)
+      type_casted_binds = prepared_binds(binds)
       log(sql, name) do
         begin
           stmt =
@@ -177,8 +177,9 @@ module ODBCAdapter
       end
     end
 
-    def type_cast_binds(binds)
+    def prepared_binds(binds)
       res = binds.map{|bind|
+        # todo: these are workarounds, how should type-casting work in rails-8.1?
         if bind.respond_to?(:value_for_database)
           v_casted = bind.value_for_database
           # v_casted = bind.type_cast(v)
@@ -192,6 +193,10 @@ module ODBCAdapter
           end
         elsif bind.respond_to?(:type_cast)
           v_casted = bind.type_cast(v)
+        elsif bind.is_a?(ActiveSupport::TimeWithZone)
+          v_casted = bind.to_fs(:db)
+        elsif bind.is_a?(BigDecimal)
+          v_casted = bind.to_fs(:db)
         else
           v_casted = bind
         end
@@ -399,13 +404,19 @@ module ODBCAdapter
 
       # in DB/2 for i we need to wrap the INSERT in a SELECT to get auto-generated values
       # we need this to retrieve generated id
-      def sql_for_insert(sql, pk, binds)
+      def sql_for_insert(sql, pk, binds, returning = nil)
         unless pk
           table_ref = extract_table_ref_from_insert_sql(sql)
           pk = primary_key(table_ref) if table_ref
         end
 
-        sql = "select #{quote_column_name(pk)} from final table (#{sql})" if pk
+        if pk
+          if pk.is_a?(Array)
+            sql = "select #{pk.map{|k| k.to_s}.join(', ')} from final table (#{sql})"
+          else
+            sql = "select #{quote_column_name(pk)} from final table (#{sql})"
+          end
+        end
         [sql, binds]
       end
     end
