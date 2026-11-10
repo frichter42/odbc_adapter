@@ -19,7 +19,7 @@ module ODBCAdapter
     def begin_db_transaction(isolation: :repeatable_read)
       begin
         execute "SET TRANSACTION ISOLATION LEVEL #{transaction_isolation_levels.fetch(isolation)}"
-      rescue ODBC_UTF8::Error => e
+      rescue ODBC::Error => e
         msg = e.message.force_encoding("utf-8")
         if msg.startswith?("HY000 (-428)")
           # SQL -428 tritt auf, wenn wir schon in einer Transaktion sind
@@ -29,6 +29,8 @@ module ODBCAdapter
           # Umstände nicht kennen
           # Deshalb ignorieren wir den Fehler und machen weiter
         else
+          logger.error(e.class.new(msg))
+          logger.error(e.backtrace[0, 30].join("\n\t"))
           raise e.class, msg
         end
       end
@@ -65,13 +67,16 @@ module ODBCAdapter
                 stmt = @statements[real_sql] ||= @connection.prepare(real_sql)
                 begin
                   stmt.execute(*type_casted_binds)
-                rescue ODBC_UTF8::Error => e
+                rescue ODBC::Error => e
                   if /Stale ODBC::Statement/ =~ e.message
                     # re-prepare statement
                     stmt = @connection.prepare(real_sql)
                     stmt.execute(*type_casted_binds)
                   else
-                    raise
+                    msg = e.message.force_encoding(Encoding::UTF_8)
+                    logger.error(e.class.new(msg))
+                    logger.error(e.backtrace[0, 30].join("\n\t"))
+                    raise e.class, msg
                   end
                 end
                 nrows = stmt.nrows
@@ -84,7 +89,7 @@ module ODBCAdapter
               @connection.do(sql, *type_casted_binds)
             end
 
-        rescue ODBC_UTF8::Error => e
+        rescue ODBC::Error => e
           msg = e.message.force_encoding("utf-8")
           if sql.upcase.starts_with?("SET TRANSACTION ISOLATION LEVEL") and msg.starts_with?("HY000 (-428)")
             # SQL -428 tritt auf, wenn wir schon in einer Transaktion sind
@@ -97,7 +102,7 @@ module ODBCAdapter
             logger.warn(e.backtrace[0, 30].join("\n\t"))
           else
             # logger.error("As400OdbcAdapter: #{e.class}: #{msg}")
-            logger.error(e)
+            logger.error(e.class.new(msg))
             logger.error(e.backtrace[0, 30].join("\n\t"))
             raise e.class, msg
           end
@@ -120,13 +125,16 @@ module ODBCAdapter
                 stmt = @statements[real_sql] ||= @connection.prepare(real_sql)
                 begin
                   stmt.execute(*type_casted_binds)
-                rescue ODBC_UTF8::Error => e
+                rescue ODBC::Error => e
                   if /Stale ODBC::Statement/ =~ e.message
                     # re-prepare statement
                     stmt = @connection.prepare(real_sql)
                     stmt.execute(*type_casted_binds)
                   else
-                    raise
+                    msg = e.message.force_encoding("utf-8")
+                    logger.error(e.class.new(msg))
+                    logger.error(e.backtrace[0, 30].join("\n\t"))
+                    raise e.class, msg
                   end
                 end
               else
@@ -167,10 +175,10 @@ module ODBCAdapter
             end
           end
           ActiveRecord::Result.new(column_names, values, column_types)
-        rescue ODBC_UTF8::Error => e
+        rescue ODBC::Error => e
           msg = e.message.force_encoding("utf-8")
           # logger.error("As400OdbcAdapter: #{e.class}: #{msg}")
-          logger.error(e)
+          logger.error(e.class.new(msg))
           logger.error(e.backtrace[0, 30].join("\n\t"))
           raise e.class, msg
         end
