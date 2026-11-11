@@ -188,25 +188,25 @@ module ODBCAdapter
     def prepared_binds(binds)
       res = binds.map{|bind|
         # todo: these are workarounds, how should type-casting work in rails-8.1?
+
+        # value_for_database existiert, wenn bind ein ActiveModel::Attribute::WithCastValue ist
         if bind.respond_to?(:value_for_database)
-          v_casted = bind.value_for_database
-          # v_casted = bind.type_cast(v)
+          v_casted = type_cast(bind.value_for_database)
           # work around defect type handling for timestamps in ODBC driver
-          if bind.type.class == ActiveRecord::Type::DateTime
-            v_casted = v_casted.strftime("%F %T.%N").slice(0, bind.type.precision)
-          elsif bind.type.class == ActiveRecord::Type::Time
-            v_casted = v_casted.strftime("%T")
-          elsif v_casted.respond_to?(:to_fs)
-            v_casted = (v_casted.to_fs(:db) rescue v_casted)
-          end
-        elsif bind.respond_to?(:type_cast)
-          v_casted = bind.type_cast(v)
-        elsif bind.is_a?(ActiveSupport::TimeWithZone)
-          v_casted = bind.to_fs(:db)
-        elsif bind.is_a?(BigDecimal)
-          v_casted = bind.to_fs(:db)
+          # if bind.type.class == ActiveRecord::Type::DateTime
+          #   v_casted = v_casted.strftime("%F %T.%N").slice(0, bind.type.precision)
+          # elsif bind.type.class == ActiveRecord::Type::Time
+          #   v_casted = v_casted.strftime("%T")
+          # elsif v_casted.respond_to?(:to_fs)
+          #   v_casted = (v_casted.to_fs(:db) rescue v_casted)
+          # end
+          # v_casted = type_cast(v_casted)
+        # elsif bind.respond_to?(:type_cast)
+        #   v_casted = bind.type_cast
+        # elsif bind.is_a?(ActiveSupport::TimeWithZone)
+        #   v_casted = bind.to_fs(:db)
         else
-          v_casted = bind
+          v_casted = type_cast(bind)
         end
         v_casted
       }
