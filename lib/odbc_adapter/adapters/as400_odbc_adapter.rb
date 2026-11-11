@@ -191,7 +191,8 @@ module ODBCAdapter
 
         # value_for_database existiert, wenn bind ein ActiveModel::Attribute::WithCastValue ist
         if bind.respond_to?(:value_for_database)
-          v_casted = type_cast(bind.value_for_database)
+          tmp_val = bind.value_for_database
+          v_casted = (type_cast(tmp_val) rescue tmp_val)
           # work around defect type handling for timestamps in ODBC driver
           # if bind.type.class == ActiveRecord::Type::DateTime
           #   v_casted = v_casted.strftime("%F %T.%N").slice(0, bind.type.precision)
@@ -206,7 +207,7 @@ module ODBCAdapter
         # elsif bind.is_a?(ActiveSupport::TimeWithZone)
         #   v_casted = bind.to_fs(:db)
         else
-          v_casted = type_cast(bind)
+          v_casted = (type_cast(bind) rescue bind)
         end
         v_casted
       }
