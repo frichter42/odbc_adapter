@@ -19,7 +19,7 @@ module ODBCAdapter
     def begin_db_transaction(isolation: :repeatable_read)
       begin
         execute "SET TRANSACTION ISOLATION LEVEL #{transaction_isolation_levels.fetch(isolation)}"
-      rescue ODBC_UTF8::Error => e
+      rescue ODBC::Error => e
         msg = e.message.force_encoding("utf-8")
         if msg.startswith?("HY000 (-428)")
           # SQL -428 tritt auf, wenn wir schon in einer Transaktion sind
@@ -29,6 +29,8 @@ module ODBCAdapter
           # Umstände nicht kennen
           # Deshalb ignorieren wir den Fehler und machen weiter
         else
+          logger.error(e.class.new(msg))
+          logger.error(e.backtrace[0, 30].join("\n\t"))
           raise e.class, msg
         end
       end
@@ -53,25 +55,28 @@ module ODBCAdapter
 
     # Executes the SQL statement in the context of this connection.
     # Returns the number of rows affected.
-    def execute(sql, name = 'SQL', binds=[])
-      type_casted_binds = type_cast_binds(binds)
+    def execute(sql, name = 'SQL', binds=[], prepare: false)
+      type_casted_binds = prepared_binds(binds)
       log(sql, name) do
         begin
           nrows =
-            if prepared_statements or prepare
+            if prepared_statements || prepare
               real_sql = prepare_statement_sub(sql)
               # we cache only statements with binds
               if binds.size > 0 and binds.size <= 30
                 stmt = @statements[real_sql] ||= @connection.prepare(real_sql)
                 begin
                   stmt.execute(*type_casted_binds)
-                rescue ODBC_UTF8::Error => e
+                rescue ODBC::Error => e
                   if /Stale ODBC::Statement/ =~ e.message
                     # re-prepare statement
                     stmt = @connection.prepare(real_sql)
                     stmt.execute(*type_casted_binds)
                   else
-                    raise
+                    msg = e.message.force_encoding(Encoding::UTF_8)
+                    logger.error(e.class.new(msg))
+                    logger.error(e.backtrace[0, 30].join("\n\t"))
+                    raise e.class, msg
                   end
                 end
                 nrows = stmt.nrows
@@ -84,7 +89,7 @@ module ODBCAdapter
               @connection.do(sql, *type_casted_binds)
             end
 
-        rescue ODBC_UTF8::Error => e
+        rescue ODBC::Error => e
           msg = e.message.force_encoding("utf-8")
           if sql.upcase.starts_with?("SET TRANSACTION ISOLATION LEVEL") and msg.starts_with?("HY000 (-428)")
             # SQL -428 tritt auf, wenn wir schon in einer Transaktion sind
@@ -97,7 +102,7 @@ module ODBCAdapter
             logger.warn(e.backtrace[0, 30].join("\n\t"))
           else
             # logger.error("As400OdbcAdapter: #{e.class}: #{msg}")
-            logger.error(e)
+            logger.error(e.class.new(msg))
             logger.error(e.backtrace[0, 30].join("\n\t"))
             raise e.class, msg
           end
@@ -109,7 +114,7 @@ module ODBCAdapter
     # +binds+ as the bind substitutes. +name+ is logged along with
     # the executed +sql+ statement.
     def exec_query(sql, name = 'SQL', binds = [], prepare: false) # rubocop:disable Lint/UnusedMethodArgument
-      type_casted_binds = type_cast_binds(binds)
+      type_casted_binds = prepared_binds(binds)
       log(sql, name) do
         begin
           stmt =
@@ -120,13 +125,16 @@ module ODBCAdapter
                 stmt = @statements[real_sql] ||= @connection.prepare(real_sql)
                 begin
                   stmt.execute(*type_casted_binds)
-                rescue ODBC_UTF8::Error => e
+                rescue ODBC::Error => e
                   if /Stale ODBC::Statement/ =~ e.message
                     # re-prepare statement
                     stmt = @connection.prepare(real_sql)
                     stmt.execute(*type_casted_binds)
                   else
-                    raise
+                    msg = e.message.force_encoding("utf-8")
+                    logger.error(e.class.new(msg))
+                    logger.error(e.backtrace[0, 30].join("\n\t"))
+                    raise e.class, msg
                   end
                 end
               else
@@ -167,33 +175,39 @@ module ODBCAdapter
             end
           end
           ActiveRecord::Result.new(column_names, values, column_types)
-        rescue ODBC_UTF8::Error => e
+        rescue ODBC::Error => e
           msg = e.message.force_encoding("utf-8")
           # logger.error("As400OdbcAdapter: #{e.class}: #{msg}")
-          logger.error(e)
+          logger.error(e.class.new(msg))
           logger.error(e.backtrace[0, 30].join("\n\t"))
           raise e.class, msg
         end
       end
     end
 
-    def type_cast_binds(binds)
+    def prepared_binds(binds)
       res = binds.map{|bind|
+        # todo: these are workarounds, how should type-casting work in rails-8.1?
+
+        # value_for_database existiert, wenn bind ein ActiveModel::Attribute::WithCastValue ist
         if bind.respond_to?(:value_for_database)
-          v_casted = bind.value_for_database
-          # v_casted = bind.type_cast(v)
+          tmp_val = bind.value_for_database
+          v_casted = (type_cast(tmp_val) rescue tmp_val)
           # work around defect type handling for timestamps in ODBC driver
-          if bind.type.class == ActiveRecord::Type::DateTime
-            v_casted = v_casted.strftime("%F %T.%N").slice(0, bind.type.precision)
-          elsif bind.type.class == ActiveRecord::Type::Time
-            v_casted = v_casted.strftime("%T")
-          elsif v_casted.respond_to?(:to_fs)
-            v_casted = (v_casted.to_fs(:db) rescue v_casted)
-          end
-        elsif bind.respond_to?(:type_cast)
-          v_casted = bind.type_cast(v)
+          # if bind.type.class == ActiveRecord::Type::DateTime
+          #   v_casted = v_casted.strftime("%F %T.%N").slice(0, bind.type.precision)
+          # elsif bind.type.class == ActiveRecord::Type::Time
+          #   v_casted = v_casted.strftime("%T")
+          # elsif v_casted.respond_to?(:to_fs)
+          #   v_casted = (v_casted.to_fs(:db) rescue v_casted)
+          # end
+          # v_casted = type_cast(v_casted)
+        # elsif bind.respond_to?(:type_cast)
+        #   v_casted = bind.type_cast
+        # elsif bind.is_a?(ActiveSupport::TimeWithZone)
+        #   v_casted = bind.to_fs(:db)
         else
-          v_casted = bind
+          v_casted = (type_cast(bind) rescue bind)
         end
         v_casted
       }
@@ -242,16 +256,19 @@ module ODBCAdapter
 
       # type cast values from DB
       # we cast decimal and numeric to BigDecimal, when having a scale > 0 or a size that does not fit in an int
-      def dbms_type_cast(column, values)
+      def dbms_type_cast(columns, values)
         # Rails.logger.debug("dbms_type_cast called with columns: #{columns.inspect} and values: #{values.inspect}")
         values.each do |row|
           row.each_index do |idx|
-            if [ODBC::SQL_DECIMAL, ODBC::SQL_NUMERIC].include?(column[idx].type)
-              if column[idx].scale == 0 and column[idx].precision < 10
-                row[idx] = row[idx].to_i
+            val = row[idx]
+            if [ODBC::SQL_DECIMAL, ODBC::SQL_NUMERIC].include?(columns[idx].type)
+              if columns[idx].scale == 0 and columns[idx].precision < 10
+                row[idx] = val.to_i
               else
-                row[idx] = row[idx].to_d
+                row[idx] = val.to_d
               end
+            elsif val.is_a?(String)
+              row[idx] = val.force_encoding("UTF-8")
             end
           end
         end
@@ -336,8 +353,13 @@ module ODBCAdapter
 #            end
           end
           sql_type_metadata = ActiveRecord::ConnectionAdapters::SqlTypeMetadata.new(**args)
+          cast_type = lookup_cast_type(sql_type_metadata.sql_type)
 
-          cols << new_column(format_case(col_name), col_default, sql_type_metadata, col_nullable, table_name, col_native_type)
+          col_args = [format_case(col_name)]
+          col_args << cast_type if rails_81_or_later?
+          col_args.push(col_default, sql_type_metadata, col_nullable, col_native_type)
+
+          cols << new_column(*col_args)
         end
       end
 
@@ -391,13 +413,19 @@ module ODBCAdapter
 
       # in DB/2 for i we need to wrap the INSERT in a SELECT to get auto-generated values
       # we need this to retrieve generated id
-      def sql_for_insert(sql, pk, binds)
+      def sql_for_insert(sql, pk, binds, returning = nil)
         unless pk
           table_ref = extract_table_ref_from_insert_sql(sql)
           pk = primary_key(table_ref) if table_ref
         end
 
-        sql = "select #{quote_column_name(pk)} from final table (#{sql})" if pk
+        if pk
+          if pk.is_a?(Array)
+            sql = "select #{pk.map{|k| k.to_s}.join(', ')} from final table (#{sql})"
+          else
+            sql = "select #{quote_column_name(pk)} from final table (#{sql})"
+          end
+        end
         [sql, binds]
       end
     end

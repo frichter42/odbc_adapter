@@ -3,18 +3,25 @@ module ODBCAdapter
     # Overrides specific to PostgreSQL. Mostly taken from
     # ActiveRecord::ConnectionAdapters::PostgreSQLAdapter
     class PostgreSQLODBCAdapter < ActiveRecord::ConnectionAdapters::ODBCAdapter
-      BOOLEAN_TYPE = 'bool'.freeze
-      PRIMARY_KEY  = 'SERIAL PRIMARY KEY'.freeze
+      BOOLEAN_TYPE = "bool".freeze
+      PRIMARY_KEY  = "SERIAL PRIMARY KEY".freeze
 
       alias create insert
 
       # Override to handle booleans appropriately
       def native_database_types
-        @native_database_types ||= super.merge(boolean: { name: 'bool' })
+        @native_database_types ||= super.merge(boolean: { name: "bool" })
       end
 
       def arel_visitor
         Arel::Visitors::PostgreSQL.new(self)
+      end
+
+      # Explicitly disable prepared statements for now, as it's always erroring
+      # out with:
+      #   ODBC::Error: INTERN (0) [RubyODBC]Too much parameters
+      def prepared_statements
+        false
       end
 
       # Filter for ODBCAdapter#tables
@@ -29,19 +36,19 @@ module ODBCAdapter
 
       # Returns the sequence name for a table's primary key or some other
       # specified key.
-      def default_sequence_name(table_name, pk = nil)
-        serial_sequence(table_name, pk || 'id').split('.').last
+      def default_sequence_name(table_name, pri_key = nil)
+        serial_sequence(table_name, pri_key || "id").split(".").last
       rescue ActiveRecord::StatementInvalid
-        "#{table_name}_#{pk || 'id'}_seq"
+        "#{table_name}_#{pri_key || 'id'}_seq"
       end
 
-      def sql_for_insert(sql, pk, _id_value, _sequence_name, binds)
-        unless pk
+      def sql_for_insert(sql, pri_key, binds, _returning = nil)
+        unless pri_key
           table_ref = extract_table_ref_from_insert_sql(sql)
-          pk = primary_key(table_ref) if table_ref
+          pri_key = primary_key(table_ref) if table_ref
         end
 
-        sql = "#{sql} RETURNING #{quote_column_name(pk)}" if pk
+        sql = "#{sql} RETURNING #{quote_column_name(pri_key)}" if pri_key
         [sql, binds]
       end
 
@@ -50,7 +57,8 @@ module ODBCAdapter
 
         case value
         when String
-          return super unless 'bytea' == column.native_type
+          return super unless column.native_type == "bytea"
+
           { value: value, format: 1 }
         else
           super
@@ -60,14 +68,14 @@ module ODBCAdapter
       # Quotes a string, escaping any ' (single quote) and \ (backslash)
       # characters.
       def quote_string(string)
-        string.gsub(/\\/, '\&\&').gsub(/'/, "''")
+        string.gsub("\\", '\&\&').gsub("'", "''")
       end
 
       def disable_referential_integrity
-        execute(tables.map { |name| "ALTER TABLE #{quote_table_name(name)} DISABLE TRIGGER ALL" }.join(';'))
+        execute(tables.map { |name| "ALTER TABLE #{quote_table_name(name)} DISABLE TRIGGER ALL" }.join(";"))
         yield
       ensure
-        execute(tables.map { |name| "ALTER TABLE #{quote_table_name(name)} ENABLE TRIGGER ALL" }.join(';'))
+        execute(tables.map { |name| "ALTER TABLE #{quote_table_name(name)} ENABLE TRIGGER ALL" }.join(";"))
       end
 
       # Create a new PostgreSQL database. Options include <tt>:owner</tt>,
@@ -79,7 +87,7 @@ module ODBCAdapter
       #   create_database config[:database], config
       #   create_database 'foo_development', encoding: 'unicode'
       def create_database(name, options = {})
-        options = options.reverse_merge(encoding: 'utf8')
+        options = options.reverse_merge(encoding: "utf8")
 
         option_string = options.symbolize_keys.sum do |key, value|
           case key
@@ -94,7 +102,7 @@ module ODBCAdapter
           when :connection_limit
             " CONNECTION LIMIT = #{value}"
           else
-            ''
+            ""
           end
         end
 
@@ -115,7 +123,8 @@ module ODBCAdapter
       end
 
       def change_column(table_name, column_name, type, options = {})
-        execute("ALTER TABLE #{table_name} ALTER  #{column_name} TYPE #{type_to_sql(type, options[:limit], options[:precision], options[:scale])}")
+        column_type = type_to_sql(type, options[:limit], options[:precision], options[:scale])
+        execute("ALTER TABLE #{table_name} ALTER  #{column_name} TYPE #{column_type}")
         change_column_default(table_name, column_name, options[:default]) if options_include_default?(options)
       end
 
@@ -148,7 +157,7 @@ module ODBCAdapter
 
         # Construct a clean list of column names from the ORDER BY clause,
         # removing any ASC/DESC modifiers
-        order_columns = orders.map { |s| s.gsub(/\s+(ASC|DESC)\s*(NULLS\s+(FIRST|LAST)\s*)?/i, '') }
+        order_columns = orders.map { |s| s.gsub(/\s+(ASC|DESC)\s*(NULLS\s+(FIRST|LAST)\s*)?/i, "") }
         order_columns.reject!(&:blank?)
         order_columns = order_columns.zip((0...order_columns.size).to_a).map { |s, i| "#{s} AS alias_#{i}" }
 
@@ -158,14 +167,14 @@ module ODBCAdapter
       protected
 
       # Executes an INSERT query and returns the new record's ID
-      def insert_sql(sql, name = nil, pk = nil, id_value = nil, sequence_name = nil)
-        unless pk
+      def insert_sql(sql, name = nil, pri_key = nil, id_value = nil, sequence_name = nil)
+        unless pri_key
           table_ref = extract_table_ref_from_insert_sql(sql)
-          pk = primary_key(table_ref) if table_ref
+          pri_key = primary_key(table_ref) if table_ref
         end
 
-        if pk
-          select_value("#{sql} RETURNING #{quote_column_name(pk)}")
+        if pri_key
+          select_value("#{sql} RETURNING #{quote_column_name(pri_key)}")
         else
           super
         end
@@ -173,16 +182,16 @@ module ODBCAdapter
 
       # Returns the current ID of a table's sequence.
       def last_insert_id(sequence_name)
-        r = exec_query("SELECT currval('#{sequence_name}')", 'SQL')
+        r = exec_query("SELECT currval('#{sequence_name}')", "SQL")
         Integer(r.rows.first.first)
       end
 
       private
 
       def serial_sequence(table, column)
-        result = exec_query(<<-eosql, 'SCHEMA')
+        result = exec_query(<<-EOSQL, "SCHEMA")
           SELECT pg_get_serial_sequence('#{table}', '#{column}')
-        eosql
+        EOSQL
         result.rows.first.first
       end
     end
