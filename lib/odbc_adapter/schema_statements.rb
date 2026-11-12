@@ -92,9 +92,9 @@ module ODBCAdapter
 
         col_args = [format_case(col_name)]
         col_args << cast_type if rails_81_or_later?
-        col_args.push(col_default, sql_type_metadata, col_nullable)
+        col_args.push(col_default, sql_type_metadata, col_nullable, col_native_type)
 
-        cols << new_column(*col_args, native_type: col_native_type)
+        cols << new_column(*col_args)
       end
     end
 
