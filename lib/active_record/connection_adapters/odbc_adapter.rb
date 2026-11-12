@@ -1,6 +1,6 @@
 require "active_record"
-require "odbc"
 require 'odbc_utf8'
+# require "odbc"
 
 require "odbc_adapter/database_limits"
 require "odbc_adapter/database_statements"
@@ -69,8 +69,8 @@ module ActiveRecord
           username   = config[:username]&.to_s
           password   = config[:password]&.to_s
 
-          # If it includes only the DSN + credentials
-          if (config.keys - %i[adapter dsn username password]).empty?
+          # If it includes the DSN + credentials
+          if (%i[adapter dsn username password] - config.keys).empty?
             connection = ODBC.connect(config[:dsn], username, password)
             config = config.merge(username: username, password: password)
           # Support additional overrides, e.g. host: db.example.com
@@ -142,7 +142,7 @@ module ActiveRecord
       def disconnect!
         @lock.synchronize do
           super
-          @connection&.disconnect if @connection&.connected?
+          (@connection&.disconnect rescue nil) if @connection&.connected?
           @connection = nil
           @raw_connection = nil
         end
