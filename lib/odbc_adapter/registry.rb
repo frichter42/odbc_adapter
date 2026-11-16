@@ -6,7 +6,8 @@ module ODBCAdapter
       @dbs = {
         /postgres/i => :PostgreSQL,
         /snowflake/i => :Snowflake,
-        /db2\/400/i => :As400
+        /db2\/400/i => :As400,
+        /informix/i => :Informix,
       }
     end
 
