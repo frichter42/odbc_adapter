@@ -150,28 +150,28 @@ module ODBCAdapter
 
           values = dbms_type_cast(columns.values, values)
           column_names = columns.keys.map { |key| format_case(key) }
-          column_types = {}
+          column_types = []
           columns.keys.each_with_index do |col, i|
             odbc_col_info = columns.values[i]
             type = (type_odbc_to_ruby[odbc_col_info.type] rescue odbc_col_info.type)
             sql_type = odbc_col_info.type
 
             if type == :integer
-              column_types[column_names[i]] = ActiveModel::Type::Integer.new(:precision => odbc_col_info.precision)
+              column_types[i] = ActiveModel::Type::Integer.new(:precision => odbc_col_info.precision)
             elsif type == :decimal
               if odbc_col_info.scale > 0
-                column_types[column_names[i]] = ActiveModel::Type::Decimal.new(:precision => odbc_col_info.precision, :scale => odbc_col_info.scale)
+                column_types[i] = ActiveModel::Type::Decimal.new(:precision => odbc_col_info.precision, :scale => odbc_col_info.scale)
               else
-                column_types[column_names[i]] = ActiveRecord::Type::DecimalWithoutScale.new(:precision => odbc_col_info.precision)
+                column_types[i] = ActiveRecord::Type::DecimalWithoutScale.new(:precision => odbc_col_info.precision)
               end
             elsif type == :string
-              column_types[column_names[i]] = ActiveModel::Type::String.new(:limit => odbc_col_info.length)
+              column_types[i] = ActiveModel::Type::String.new(:limit => odbc_col_info.length)
             elsif type == :date
-              column_types[column_names[i]] = ActiveModel::Type::Date.new
+              column_types[i] = ActiveModel::Type::Date.new
             elsif type == :time
-              column_types[column_names[i]] = ActiveModel::Type::Time.new
+              column_types[i] = ActiveModel::Type::Time.new
             elsif type == :datetime
-              column_types[column_names[i]] = ActiveModel::Type::DateTime.new(precision: 3)
+              column_types[i] = ActiveModel::Type::DateTime.new(precision: 3)
             end
           end
           ActiveRecord::Result.new(column_names, values, column_types)
